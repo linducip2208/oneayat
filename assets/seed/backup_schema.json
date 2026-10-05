@@ -1,0 +1,1 @@
+{"app":"ONE AYAT","version":1,"note":"Portable backup format: bookmarks, notes, settings, reading progress, streak.","tables":["bookmark_folders","bookmarks","notes","daily_progress","reading_history","streaks","settings"]}

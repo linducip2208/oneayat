@@ -1,0 +1,526 @@
+// Home: daily ayat (reading-aware), streak, journey progress, prev/next.
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:just_audio/just_audio.dart';
+
+import '../core/constants.dart';
+import '../core/surah_metadata.dart';
+import '../data/models.dart';
+import '../l10n/strings.dart';
+import '../quran/readings.dart';
+import '../services/progress_logic.dart';
+import '../services/ad_service.dart';
+import '../services/providers.dart';
+import '../services/share_service.dart';
+import '../services/widget_service.dart';
+import '../widgets/ayat_card.dart';
+
+class HomeScreen extends ConsumerStatefulWidget {
+  const HomeScreen({super.key});
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeState();
+}
+
+class _HomeState extends ConsumerState<HomeScreen> {
+  final _shareKey = GlobalKey();
+  AyahDetail? _detail;
+  AyahRef? _ref;
+  bool _loading = true;
+  bool _bookmarked = false;
+  bool _done = false;
+  bool _fullCoverage = false;
+  int _days = 0;
+  int _streak = 0;
+  int _longest = 0;
+  String? _note;
+  AudioStatus _audioStatus = AudioStatus.notDownloaded;
+  int _audioProgress = 0;
+  BannerAd? _banner;
+  StreamSubscription<PlayerState>? _playerSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _load(DateTime.now().toUtc());
+  }
+
+  @override
+  void dispose() {
+    _banner?.dispose();
+    _playerSub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _load(DateTime dateUtc, {int navOffset = 0}) async {
+    setState(() => _loading = true);
+    final quran = ref.read(quranRepoProvider);
+    final progress = ref.read(progressRepoProvider);
+    final settings = ref.read(settingsProvider);
+    final health = await ref.read(dbProvider).checkHealth();
+    _fullCoverage = health.fullCoverage;
+    var refDaily = await quran.dailyRef(dateUtc, fullCoverage: _fullCoverage);
+    if (navOffset != 0) {
+      if (_fullCoverage) {
+        final g = AppConstants.refToGlobalIndex(refDaily.surah, refDaily.ayah);
+        final ng = (g + navOffset) % AppConstants.totalAyahs;
+        final norm = (ng + AppConstants.totalAyahs) % AppConstants.totalAyahs;
+        final (s, a) = AppConstants.globalIndexToRef(norm);
+        refDaily = AyahRef(s, a);
+      } else {
+        final keys = (await Future.value(_seedKeys())).toList()..sort();
+        final idx = keys.indexOf('${refDaily.surah}:${refDaily.ayah}');
+        final safe = idx < 0 ? 0 : idx;
+        final ni = (safe + navOffset) % keys.length;
+        final norm = (ni + keys.length) % keys.length;
+        final p = keys[norm].split(':');
+        refDaily = AyahRef(int.parse(p[0]), int.parse(p[1]));
+      }
+    }
+    // Daily identity = (surah, ayah); displayed text follows selected reading.
+    final det = await quran.ayahDetail(refDaily.surah, refDaily.ayah,
+        readingId: settings.readingId, lang: settings.trLang);
+    final key = dateKey(DateTime.utc(dateUtc.year, dateUtc.month, dateUtc.day));
+    final done = await progress.isDailyDone(key);
+    final days = await progress.daysCompleted();
+    final (cur, lon) = await progress.streaks();
+    final bm = det == null
+        ? false
+        : await progress.isBookmarked(det.surah, det.ayah);
+    final note =
+        det == null ? null : await progress.noteFor(det.surah, det.ayah);
+    var aStatus = AudioStatus.notDownloaded;
+    var aProg = 0;
+    final reciter = settings.reciterId;
+    if (det != null && reciter != null) {
+      final st = await ref.read(reciterRepoProvider).audioState(
+          readingId: settings.readingId,
+          reciterId: reciter,
+          surah: det.surah,
+          ayah: det.ayah);
+      aStatus = st?.status ?? AudioStatus.notDownloaded;
+      aProg = st?.progress ?? 0;
+    }
+    if (!mounted) return;
+    setState(() {
+      _ref = refDaily;
+      _detail = det;
+      _done = done;
+      _days = days;
+      _streak = cur;
+      _longest = lon;
+      _bookmarked = bm;
+      _note = note;
+      _audioStatus = aStatus;
+      _audioProgress = aProg;
+      _loading = false;
+    });
+    if (det != null && navOffset == 0) {
+      WidgetService.updateDaily(
+        arabic: det.arabic,
+        ref: 'QS. ${quran.surahName(det.surah)} : ${det.ayah}',
+      );
+      _maybeBanner(settings.premium);
+    }
+  }
+
+  List<String> _seedKeys() => [
+        '1:1', '1:2', '1:3', '1:4', '1:5', '1:6', '1:7', '93:1', '93:2',
+        '93:3', '93:4', '93:5', '93:6', '93:7', '93:8', '93:9', '93:10',
+        '93:11', '94:1', '94:2', '94:3', '94:4', '94:5', '94:6', '94:7',
+        '94:8', '103:1', '103:2', '103:3', '108:1', '108:2', '108:3',
+        '112:1', '112:2', '112:3', '112:4', '113:1', '113:2', '113:3',
+        '113:4', '113:5', '114:1', '114:2', '114:3', '114:4', '114:5',
+        '114:6',
+      ];
+
+  void _maybeBanner(bool premium) {
+    final ads = ref.read(adsProvider);
+    if (!ads.bannerEnabled || _banner != null) return;
+    final ad = BannerAd(
+      size: AdSize.banner,
+      adUnitId: AdService.bannerTestId,
+      request: const AdRequest(),
+      listener: BannerAdListener(onAdFailedToLoad: (a, _) => a.dispose()),
+    )..load();
+    setState(() => _banner = ad);
+  }
+
+  String _readingLabel(String id) =>
+      kQuranReadings
+          .where((r) => r.id == id)
+          .map((r) => r.name)
+          .firstOrNull ??
+      id;
+
+  int _repeatCount(String mode) => switch (mode) {
+        '1' => 1,
+        '3' => 3,
+        '5' => 5,
+        '10' => 10,
+        _ => 0,
+      };
+
+  Future<void> _play() async {
+    final det = _detail;
+    if (det == null) return;
+    final settings = ref.read(settingsProvider);
+    final reciter = settings.reciterId;
+    if (reciter == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'No reciter selected — choose one in Settings > Audio.')),
+      );
+      return;
+    }
+    final dm = ref.read(downloadManagerProvider);
+    final file = await dm.localFile(
+        readingId: settings.readingId,
+        reciterId: reciter,
+        surah: det.surah,
+        ayah: det.ayah);
+    final audio = ref.read(audioProvider);
+    final ok = await audio.playFile(file.path,
+        speed: settings.audioSpeed,
+        repeatCount: _repeatCount(settings.repeatMode));
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Audio not downloaded. Tap download first.')),
+      );
+      return;
+    }
+    await _playerSub?.cancel();
+    _playerSub = audio.stateStream.listen((st) async {
+      if (st.processingState == ProcessingState.completed &&
+          settings.autoplayNext &&
+          mounted) {
+        // Autoplay next ayat within the same reading/reciter when available.
+        await _load(DateTime.now().toUtc(), navOffset: 1);
+        if (_audioStatus == AudioStatus.ready && mounted) {
+          await _play();
+        }
+      }
+    });
+  }
+
+  Future<void> _download() async {
+    final det = _detail;
+    if (det == null) return;
+    final settings = ref.read(settingsProvider);
+    final reciter = settings.reciterId;
+    if (reciter == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'No reciter selected — choose one in Settings > Audio.')),
+      );
+      return;
+    }
+    final dm = ref.read(downloadManagerProvider);
+    final (queued, skipped) = await dm.enqueueScope(
+      scope: DownloadScope.single(det.surah, det.ayah),
+      readingId: settings.readingId,
+      reciterId: reciter,
+      wifiOnly: settings.wifiOnly,
+    );
+    if (!mounted) return;
+    if (queued == 0 && skipped > 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'No licensed audio source registered for this reciter yet.')),
+      );
+    } else {
+      setState(() {
+        _audioStatus = AudioStatus.queued;
+      });
+      dm.events.listen((e) {
+        if (mounted &&
+            e.surah == det.surah &&
+            e.ayah == det.ayah &&
+            e.reciterId == reciter) {
+          setState(() {
+            _audioStatus = e.status;
+            _audioProgress = e.progress;
+          });
+        }
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = ref.watch(settingsProvider);
+    ref.watch(refreshTickProvider);
+    ref.watch(settingsTickProvider);
+    final t = L10n(settings.appLang);
+    final stats = journeyStats(
+        daysCompleted: _days,
+        currentStreak: _streak,
+        longestStreak: _longest,
+        pacePerDay: settings.pacePerDay);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('ONE AYAT'),
+        centerTitle: true,
+        actions: [
+          IconButton(
+              icon: const Icon(Icons.search),
+              onPressed: () => context.go('/quran')),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: () => _load(DateTime.now().toUtc()),
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                children: [
+                  Text(t.get('app_tagline'),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 4),
+                  Text(t.get('ayat_today'),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelLarge
+                          ?.copyWith(letterSpacing: 2)),
+                  const SizedBox(height: 4),
+                  Text(_readingLabel(settings.readingId),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.labelSmall),
+                  const SizedBox(height: 12),
+                  if (_detail == null)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              settings.readingId == 'warsh-madinah'
+                                  ? 'Warsh text for this ayat is not installed yet. Import a licensed Warsh dataset (Settings > Quran > Reading), or switch back to Hafs.'
+                                  : t.get('ayat_notext'),
+                            ),
+                            const SizedBox(height: 12),
+                            if (settings.readingId != 'hafs-madinah')
+                              OutlinedButton(
+                                onPressed: () async {
+                                  await settings.setReading('hafs-madinah');
+                                  ref
+                                      .read(settingsTickProvider.notifier)
+                                      .state++;
+                                  await _load(DateTime.now().toUtc());
+                                },
+                                child: const Text('Switch to Hafs'),
+                              ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    AyatCard(
+                      detail: _detail!,
+                      surahName: kSurahs[_detail!.surah - 1].latin,
+                      readingLabel: _readingLabel(settings.readingId),
+                      settings: settings,
+                      shareKey: _shareKey,
+                      bookmarked: _bookmarked,
+                      audioStatus: _audioStatus,
+                      audioProgress: _audioProgress,
+                      note: _note,
+                      onEditNote: () => _editNote(),
+                      onMore: () => _moreSheet(),
+                      onToggleBookmark: () async {
+                        await ref
+                            .read(progressRepoProvider)
+                            .toggleBookmark(
+                                _detail!.surah, _detail!.ayah);
+                        final bm = await ref
+                            .read(progressRepoProvider)
+                            .isBookmarked(_detail!.surah, _detail!.ayah);
+                        setState(() => _bookmarked = bm);
+                      },
+                      onShare: () async {
+                        await ShareService.captureAndShare(_shareKey,
+                            'oneayat_${_detail!.surah}_${_detail!.ayah}');
+                        if (_detail != null) {
+                          await ShareService.shareText(_detail!,
+                              kSurahs[_detail!.surah - 1].latin);
+                        }
+                      },
+                      onPlay: _play,
+                      onDownloadAudio: _download,
+                    ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _load(DateTime.now().toUtc(), navOffset: -1),
+                        icon: const Icon(Icons.arrow_back, size: 16),
+                        label: Text(t.get('prev')),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _load(DateTime.now().toUtc(), navOffset: 1),
+                        icon: const Icon(Icons.arrow_forward, size: 16),
+                        label: Text(t.get('next')),
+                        iconAlignment: IconAlignment.end,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton.icon(
+                    onPressed: _done
+                        ? null
+                        : () async {
+                            if (_ref == null) return;
+                            await ref
+                                .read(progressRepoProvider)
+                                .markDailyDone(
+                                    DateTime.now().toUtc(), _ref!);
+                            ref
+                                .read(refreshTickProvider.notifier)
+                                .state++;
+                            await _load(DateTime.now().toUtc());
+                          },
+                    icon: Icon(_done
+                        ? Icons.check_circle
+                        : Icons.check_circle_outline),
+                    label: Text(_done ? t.get('done') : t.get('mark_done')),
+                  ),
+                  const SizedBox(height: 16),
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Text('🔥',
+                                  style: TextStyle(fontSize: 20)),
+                              const SizedBox(width: 6),
+                              Text('$_streak ${t.get('streak_day')}',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                          fontWeight: FontWeight.bold)),
+                              const Spacer(),
+                              Text(
+                                  '$_days days · ${_days * settings.pacePerDay} ayat',
+                                  style:
+                                      Theme.of(context).textTheme.bodySmall),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          LinearProgressIndicator(
+                            value: (stats.progressPct / 100)
+                                .clamp(0.0, 1.0),
+                            borderRadius: BorderRadius.circular(8),
+                            minHeight: 8,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '${stats.progressPct.toStringAsFixed(2)}% ${t.get('journey')} · longest $_longest',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  if (_banner != null) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(height: 50, child: AdWidget(ad: _banner!)),
+                  ],
+                ],
+              ),
+            ),
+    );
+  }
+
+  Future<void> _moreSheet() async {
+    if (_detail == null) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.menu_book_outlined),
+              title: Text(
+                  'Open ${kSurahs[_detail!.surah - 1].latin} in reader'),
+              onTap: () {
+                Navigator.pop(c);
+                context.go('/quran/${_detail!.surah}');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.settings_outlined),
+              title: const Text('Reading / Riwayah settings'),
+              onTap: () {
+                Navigator.pop(c);
+                context.go('/settings/reading');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.audio_file_outlined),
+              title: const Text('Audio / Reciter settings'),
+              onTap: () {
+                Navigator.pop(c);
+                context.go('/settings/audio');
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editNote() async {
+    if (_detail == null) return;
+    final ctrl = TextEditingController(text: _note ?? '');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Reflection'),
+        content: TextField(
+            controller: ctrl,
+            maxLines: 5,
+            decoration: const InputDecoration(
+                hintText: 'What does this ayat mean to me today?')),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Save')),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await ref
+          .read(progressRepoProvider)
+          .saveNote(_detail!.surah, _detail!.ayah, ctrl.text);
+      final n = await ref
+          .read(progressRepoProvider)
+          .noteFor(_detail!.surah, _detail!.ayah);
+      setState(() => _note = n);
+    }
+  }
+}

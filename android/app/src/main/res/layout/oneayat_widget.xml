@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp"
+    android:background="#0E7C5B">
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="AYAT HARI INI"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:textStyle="bold" />
+    <TextView
+        android:id="@+id/ayat_arabic"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ"
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:maxLines="3" />
+    <TextView
+        android:id="@+id/ayat_ref"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="ONE AYAT"
+        android:textColor="#D8F3E7"
+        android:textSize="12sp" />
+</LinearLayout>
