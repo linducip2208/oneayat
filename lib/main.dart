@@ -28,6 +28,8 @@ Future<void> main() async {
       enabled: settings.reminderEnabled,
       lang: settings.appLang,
     );
+    // Refresh adzan alarms (7 days ahead) on every start.
+    await container.read(adhanProvider).reschedule(settings);
   } catch (_) {}
   try {
     await container.read(adsProvider).init(premiumUser: settings.premium);

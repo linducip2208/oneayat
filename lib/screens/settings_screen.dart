@@ -178,6 +178,15 @@ class _SetState extends ConsumerState<SettingsScreen> {
                   ),
                 ),
                 _section(context, t.get('reminder')),
+                ListTile(
+                  leading: const Icon(Icons.mosque_outlined),
+                  title: const Text('Prayer / Adzan alarms'),
+                  subtitle: Text(s.adhanEnabled
+                      ? 'On • ${s.adhanCity}'
+                      : 'Off'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => context.push('/settings/prayer'),
+                ),
                 SwitchListTile(
                   title: Text(t.get('reminder')),
                   value: s.reminderEnabled,

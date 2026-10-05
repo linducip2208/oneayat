@@ -26,6 +26,14 @@ class AppSettings {
   static const _speed = 'audio_speed'; // 0.75|1|1.25|1.5
   static const _autoplay = 'autoplay_next';
   static const _wifiOnly = 'wifi_only';
+  // v3: adzan (offline prayer alarms, manual city — no location permission)
+  static const _adhanOn = 'adhan_enabled';
+  static const _adhanCity = 'adhan_city';
+  static const _adhanLat = 'adhan_lat';
+  static const _adhanLon = 'adhan_lon';
+  static const _adhanMethod = 'prayer_method';
+  static const _adhanMap = 'adhan_prayers'; // csv of enabled keys
+  static const _prayerCard = 'show_prayer_card';
 
   String appLang = 'id';
   String trLang = 'id';
@@ -49,6 +57,15 @@ class AppSettings {
   double audioSpeed = 1.0;
   bool autoplayNext = false;
   bool wifiOnly = true;
+  bool adhanEnabled = false;
+  String adhanCity = 'Jakarta';
+  double latitude = -6.20;
+  double longitude = 106.85;
+  String prayerMethod = 'kemenag';
+  Set<String> adhanPrayers = {'fajr', 'dhuhr', 'asr', 'maghrib', 'isha'};
+  bool showPrayerCard = true;
+
+  bool adhanFor(String key) => adhanPrayers.contains(key);
 
   Future<void> load() async {
     final p = await SharedPreferences.getInstance();
@@ -74,6 +91,16 @@ class AppSettings {
     audioSpeed = p.getDouble(_speed) ?? 1.0;
     autoplayNext = p.getBool(_autoplay) ?? false;
     wifiOnly = p.getBool(_wifiOnly) ?? true;
+    adhanEnabled = p.getBool(_adhanOn) ?? false;
+    adhanCity = p.getString(_adhanCity) ?? 'Jakarta';
+    latitude = p.getDouble(_adhanLat) ?? -6.20;
+    longitude = p.getDouble(_adhanLon) ?? 106.85;
+    prayerMethod = p.getString(_adhanMethod) ?? 'kemenag';
+    final csv = p.getString(_adhanMap);
+    adhanPrayers = csv == null || csv.isEmpty
+        ? {'fajr', 'dhuhr', 'asr', 'maghrib', 'isha'}
+        : csv.split(',').toSet();
+    showPrayerCard = p.getBool(_prayerCard) ?? true;
   }
 
   Future<void> _set<T>(Future<bool> Function(SharedPreferences) fn) async {
@@ -116,4 +143,40 @@ class AppSettings {
   Future<void> setSpeed(double v) async { audioSpeed = v; await _set((p) async => p.setDouble(_speed, v)); }
   Future<void> setAutoplay(bool v) async { autoplayNext = v; await _set((p) async => p.setBool(_autoplay, v)); }
   Future<void> setWifiOnly(bool v) async { wifiOnly = v; await _set((p) async => p.setBool(_wifiOnly, v)); }
+
+  Future<void> setAdhanEnabled(bool v) async {
+    adhanEnabled = v;
+    await _set((p) async => p.setBool(_adhanOn, v));
+  }
+
+  Future<void> setAdhanCity(String name, double lat, double lon) async {
+    adhanCity = name;
+    latitude = lat;
+    longitude = lon;
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_adhanCity, name);
+    await p.setDouble(_adhanLat, lat);
+    await p.setDouble(_adhanLon, lon);
+  }
+
+  Future<void> setPrayerMethod(String v) async {
+    prayerMethod = v;
+    await _set((p) async => p.setString(_adhanMethod, v));
+  }
+
+  Future<void> setAdhanPrayer(String key, bool on) async {
+    final next = Set<String>.from(adhanPrayers);
+    if (on) {
+      next.add(key);
+    } else {
+      next.remove(key);
+    }
+    adhanPrayers = next;
+    await _set((p) async => p.setString(_adhanMap, next.join(',')));
+  }
+
+  Future<void> setShowPrayerCard(bool v) async {
+    showPrayerCard = v;
+    await _set((p) async => p.setBool(_prayerCard, v));
+  }
 }

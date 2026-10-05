@@ -8,6 +8,7 @@ import 'screens/history_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/quran_screen.dart';
+import 'screens/prayer_settings_screen.dart';
 import 'screens/reading_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/sources_screen.dart';
@@ -45,6 +46,7 @@ GoRouter buildRouter({required bool onboarded}) {
             GoRoute(path: '/settings/audio', builder: (_, __) => const AudioSettingsScreen()),
             GoRoute(path: '/settings/storage', builder: (_, __) => const StorageScreen()),
             GoRoute(path: '/settings/sources', builder: (_, __) => const SourcesScreen()),
+            GoRoute(path: '/settings/prayer', builder: (_, __) => const PrayerSettingsScreen()),
           ]),
         ],
       ),

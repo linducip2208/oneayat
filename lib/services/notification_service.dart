@@ -1,7 +1,9 @@
-// Local notifications: daily reminder, no server.
+// Local notifications: daily reminder + adzan, no server.
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
+
+import 'device_timezone.dart';
 
 class NotificationService {
   final FlutterLocalNotificationsPlugin plugin = FlutterLocalNotificationsPlugin();
@@ -9,6 +11,10 @@ class NotificationService {
 
   Future<void> init() async {
     tzdata.initializeTimeZones();
+    try {
+      final name = await DeviceTimezone.getName();
+      tz.setLocalLocation(tz.getLocation(name));
+    } catch (_) {}
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     const ios = DarwinInitializationSettings();
     await plugin.initialize(

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/db.dart';
 import '../data/quran_repository.dart';
 import 'ad_service.dart';
+import 'adhan_scheduler.dart';
 import 'audio_service.dart';
 import 'download_manager.dart';
 import 'notification_service.dart';
@@ -22,6 +23,8 @@ final downloadManagerProvider =
     Provider<DownloadManager>((ref) => DownloadManager(ref.watch(reciterRepoProvider)));
 final settingsProvider = Provider<AppSettings>((_) => AppSettings());
 final notifProvider = Provider<NotificationService>((_) => NotificationService());
+final adhanProvider =
+    Provider<AdhanScheduler>((ref) => AdhanScheduler(ref.watch(notifProvider)));
 final audioProvider = Provider<AyatAudioService>((_) => AyatAudioService());
 final adsProvider = Provider<AdService>((_) => AdService());
 

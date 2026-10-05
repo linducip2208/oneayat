@@ -14,6 +14,7 @@ import '../l10n/strings.dart';
 import '../quran/readings.dart';
 import '../services/progress_logic.dart';
 import '../services/ad_service.dart';
+import '../services/prayer_times.dart';
 import '../services/providers.dart';
 import '../services/share_service.dart';
 import '../services/widget_service.dart';
@@ -39,6 +40,7 @@ class _HomeState extends ConsumerState<HomeScreen> {
   String? _note;
   AudioStatus _audioStatus = AudioStatus.notDownloaded;
   int _audioProgress = 0;
+  bool _playing = false;
   BannerAd? _banner;
   StreamSubscription<PlayerState>? _playerSub;
 
@@ -167,6 +169,11 @@ class _HomeState extends ConsumerState<HomeScreen> {
   Future<void> _play() async {
     final det = _detail;
     if (det == null) return;
+    final audio = ref.read(audioProvider);
+    if (_playing) {
+      await audio.pause();
+      return;
+    }
     final settings = ref.read(settingsProvider);
     final reciter = settings.reciterId;
     if (reciter == null) {
@@ -184,7 +191,6 @@ class _HomeState extends ConsumerState<HomeScreen> {
         reciterId: reciter,
         surah: det.surah,
         ayah: det.ayah);
-    final audio = ref.read(audioProvider);
     final ok = await audio.playFile(file.path,
         speed: settings.audioSpeed,
         repeatCount: _repeatCount(settings.repeatMode));
@@ -196,15 +202,13 @@ class _HomeState extends ConsumerState<HomeScreen> {
       return;
     }
     await _playerSub?.cancel();
-    _playerSub = audio.stateStream.listen((st) async {
-      if (st.processingState == ProcessingState.completed &&
-          settings.autoplayNext &&
-          mounted) {
-        // Autoplay next ayat within the same reading/reciter when available.
-        await _load(DateTime.now().toUtc(), navOffset: 1);
-        if (_audioStatus == AudioStatus.ready && mounted) {
-          await _play();
-        }
+    // Home is locked to today's ayat for 24h: no auto-advance.
+    // Repeat (1x/3x/5x/10x) is handled inside the audio controller.
+    _playerSub = audio.stateStream.listen((st) {
+      if (mounted) {
+        setState(() {
+          _playing = st.playing;
+        });
       }
     });
   }
@@ -338,6 +342,7 @@ class _HomeState extends ConsumerState<HomeScreen> {
                       bookmarked: _bookmarked,
                       audioStatus: _audioStatus,
                       audioProgress: _audioProgress,
+                      isPlaying: _playing,
                       note: _note,
                       onEditNote: () => _editNote(),
                       onMore: () => _moreSheet(),
@@ -362,25 +367,6 @@ class _HomeState extends ConsumerState<HomeScreen> {
                       onPlay: _play,
                       onDownloadAudio: _download,
                     ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () =>
-                            _load(DateTime.now().toUtc(), navOffset: -1),
-                        icon: const Icon(Icons.arrow_back, size: 16),
-                        label: Text(t.get('prev')),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: () =>
-                            _load(DateTime.now().toUtc(), navOffset: 1),
-                        icon: const Icon(Icons.arrow_forward, size: 16),
-                        label: Text(t.get('next')),
-                        iconAlignment: IconAlignment.end,
-                      ),
-                    ],
-                  ),
                   const SizedBox(height: 8),
                   FilledButton.icon(
                     onPressed: _done
@@ -446,14 +432,70 @@ class _HomeState extends ConsumerState<HomeScreen> {
                     const SizedBox(height: 12),
                     SizedBox(height: 50, child: AdWidget(ad: _banner!)),
                   ],
+                  if (settings.showPrayerCard) ...[
+                    const SizedBox(height: 12),
+                    _prayerCard(context, settings),
+                  ],
                 ],
               ),
             ),
     );
   }
 
-  Future<void> _moreSheet() async {
-    if (_detail == null) return;
+  Widget _prayerCard(BuildContext context, dynamic settings) {
+    final now = DateTime.now();
+    final day = computePrayerDay(
+      localDay: now,
+      lat: settings.latitude as double,
+      lon: settings.longitude as double,
+      method: prayerMethodById(settings.prayerMethod as String),
+      tzOffsetHours: now.timeZoneOffset.inMinutes.toDouble() / 60.0,
+    );
+    final next = day.nextFrom(now);
+    String hm(DateTime t) =>
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.mosque, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    next == null
+                        ? 'Prayer times • ${settings.adhanCity}'
+                        : 'Next: ${prayerName(next.$1, settings.appLang as String)} ${hm(next.$2)} • ${settings.adhanCity}',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              children: [
+                for (final k in kAdhanKeys)
+                  Text(
+                    '${prayerName(k, settings.appLang as String)} ${hm(day.timeOf(k))}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _moreSheet() async {    if (_detail == null) return;
     await showModalBottomSheet<void>(
       context: context,
       builder: (c) => SafeArea(

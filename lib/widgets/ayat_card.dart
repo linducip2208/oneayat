@@ -1,5 +1,5 @@
-// Mushaf-first Ayat card: Arabic dominant, then translation/transliteration/
-// tafsir, then controls (audio status-aware, bookmark, share, more).
+// Satu ayat, satu kartu: Arab dominan, satu tombol putar, tafsir ketuk-buka.
+// Seluruh kartu scroll natural di dalam ListView bila teks panjang.
 import 'package:flutter/material.dart';
 
 import '../data/models.dart';
@@ -7,7 +7,7 @@ import '../quran/mushaf_config.dart';
 import '../quran/readings.dart';
 import '../services/settings_store.dart';
 
-class AyatCard extends StatelessWidget {
+class AyatCard extends StatefulWidget {
   final AyahDetail detail;
   final String surahName;
   final String readingLabel;
@@ -16,6 +16,7 @@ class AyatCard extends StatelessWidget {
   final bool bookmarked;
   final AudioStatus audioStatus;
   final int audioProgress;
+  final bool isPlaying;
   final VoidCallback onToggleBookmark;
   final VoidCallback onShare;
   final VoidCallback onPlay;
@@ -34,6 +35,7 @@ class AyatCard extends StatelessWidget {
     required this.bookmarked,
     this.audioStatus = AudioStatus.notDownloaded,
     this.audioProgress = 0,
+    this.isPlaying = false,
     required this.onToggleBookmark,
     required this.onShare,
     required this.onPlay,
@@ -44,12 +46,20 @@ class AyatCard extends StatelessWidget {
   });
 
   @override
+  State<AyatCard> createState() => _AyatCardState();
+}
+
+class _AyatCardState extends State<AyatCard> {
+  bool _tafsirOpen = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final trText = detail.translationFor(settings.trLang);
-    final src = detail.translationSource;
+    final d = widget.detail;
+    final settings = widget.settings;
+    final trText = d.translationFor(settings.trLang);
     return RepaintBoundary(
-      key: shareKey,
+      key: widget.shareKey,
       child: Card(
         elevation: 0,
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
@@ -59,12 +69,11 @@ class AyatCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Surah header
               Row(
                 children: [
                   Expanded(
                     child: Text(
-                      'QS. $surahName : ${detail.ayah}  •  Juz ${detail.juz}',
+                      'QS. ${widget.surahName} : ${d.ayah}  •  Juz ${d.juz}',
                       style: Theme.of(context).textTheme.labelLarge?.copyWith(
                             color: scheme.primary,
                             fontWeight: FontWeight.w700,
@@ -73,37 +82,28 @@ class AyatCard extends StatelessWidget {
                   ),
                   IconButton(
                     tooltip: 'More',
-                    onPressed: onMore,
+                    onPressed: widget.onMore,
                     icon: const Icon(Icons.more_vert, size: 20),
                   ),
                 ],
               ),
               Text(
-                readingLabel,
+                widget.readingLabel,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: scheme.onSurfaceVariant, letterSpacing: 0.6),
               ),
               const SizedBox(height: 16),
-              // Dominant Arabic (verbatim, reading-aware rendering)
               MushafText(
-                text: '${detail.tajwid ?? detail.arabic}  ${ayahMarker(detail.ayah)}',
-                readingId: detail.readingId,
+                text:
+                    '${d.tajwid ?? d.arabic}  ${ayahMarker(d.ayah)}',
+                readingId: d.readingId,
                 fontSize: settings.arabicSize,
                 height: settings.lineHeight,
               ),
-              if (mushafConfigFor(detail.readingId).licensedFamily == null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    'Madinah-oriented rendering (fallback font — licensed Madinah font can be added via assets)',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: scheme.onSurfaceVariant.withValues(alpha: 0.7)),
-                  ),
-                ),
               if (settings.showTransliteration &&
-                  detail.transliteration != null) ...[
+                  d.transliteration != null) ...[
                 const SizedBox(height: 12),
-                Text(detail.transliteration!,
+                Text(d.transliteration!,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontStyle: FontStyle.italic,
                         color: scheme.onSurfaceVariant)),
@@ -113,65 +113,94 @@ class AyatCard extends StatelessWidget {
                 Text(trText,
                     style:
                         TextStyle(fontSize: settings.trSize, height: 1.6)),
-                if (src != null && src.isNotEmpty)
+                if ((d.translationSource ?? '').isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
-                    child: Text('— $src',
+                    child: Text('— ${d.translationSource}',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: scheme.onSurfaceVariant)),
                   ),
               ],
-              if (settings.showTafsir && detail.tafsir != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: scheme.surfaceContainerLow,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Tafsir${detail.tafsirScholar != null ? ' — ${detail.tafsirScholar}' : ''}',
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelLarge
-                            ?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(detail.tafsir!,
-                          style: TextStyle(
-                              fontSize: settings.trSize - 1, height: 1.6)),
-                    ],
+              // Tafsir: ketuk untuk buka/tutup.
+              if (settings.showTafsir && d.tafsir != null) ...[
+                const SizedBox(height: 8),
+                InkWell(
+                  onTap: () =>
+                      setState(() => _tafsirOpen = !_tafsirOpen),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: scheme.surfaceContainerLow,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Tafsir${d.tafsirScholar != null ? ' — ${d.tafsirScholar}' : ''}',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.copyWith(
+                                        fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                            Icon(_tafsirOpen
+                                ? Icons.expand_less
+                                : Icons.expand_more),
+                          ],
+                        ),
+                        if (_tafsirOpen) ...[
+                          const SizedBox(height: 6),
+                          Text(d.tafsir!,
+                              style: TextStyle(
+                                  fontSize: settings.trSize - 1,
+                                  height: 1.6)),
+                        ] else
+                          Text('Ketuk untuk membaca',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall),
+                      ],
+                    ),
                   ),
                 ),
               ],
               const SizedBox(height: 16),
-              _audioRow(context),
+              _audioBlock(context),
               const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
+              Row(
                 children: [
-                  OutlinedButton.icon(
-                    onPressed: onToggleBookmark,
-                    icon: Icon(
-                        bookmarked
-                            ? Icons.bookmark
-                            : Icons.bookmark_outline,
-                        size: 18),
-                    label: Text(bookmarked ? 'Saved' : 'Save'),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: widget.onToggleBookmark,
+                      icon: Icon(
+                          widget.bookmarked
+                              ? Icons.bookmark
+                              : Icons.bookmark_outline,
+                          size: 18),
+                      label:
+                          Text(widget.bookmarked ? 'Saved' : 'Save'),
+                    ),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: onShare,
-                    icon: const Icon(Icons.share_outlined, size: 18),
-                    label: const Text('Share'),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: widget.onShare,
+                      icon:
+                          const Icon(Icons.share_outlined, size: 18),
+                      label: const Text('Share'),
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
               InkWell(
-                onTap: onEditNote,
+                onTap: widget.onEditNote,
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   padding: const EdgeInsets.all(12),
@@ -180,9 +209,9 @@ class AyatCard extends StatelessWidget {
                     border: Border.all(color: scheme.outlineVariant),
                   ),
                   child: Text(
-                    (note == null || note!.isEmpty)
-                        ? '“What does this ayat mean to me today?” — tap to reflect'
-                        : '🖊 $note',
+                    (widget.note == null || widget.note!.isEmpty)
+                        ? '“Apa makna ayat ini untukku hari ini?” — ketuk untuk merenung'
+                        : '🖊 ${widget.note}',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
@@ -194,13 +223,20 @@ class AyatCard extends StatelessWidget {
     );
   }
 
-  Widget _audioRow(BuildContext context) {
-    switch (audioStatus) {
+  /// Satu blok audio: putar/jeda, unduh, atau progres — tinggal klik.
+  Widget _audioBlock(BuildContext context) {
+    switch (widget.audioStatus) {
       case AudioStatus.ready:
         return FilledButton.icon(
-          onPressed: onPlay,
-          icon: const Icon(Icons.play_arrow, size: 18),
-          label: const Text('Play offline'),
+          onPressed: widget.onPlay,
+          icon: Icon(
+              widget.isPlaying ? Icons.pause : Icons.play_arrow,
+              size: 22),
+          label: Text(widget.isPlaying ? 'Jeda' : 'Dengarkan',
+              style: const TextStyle(fontSize: 16)),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
         );
       case AudioStatus.downloading:
       case AudioStatus.queued:
@@ -208,29 +244,40 @@ class AyatCard extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            LinearProgressIndicator(value: audioProgress / 100),
+            LinearProgressIndicator(
+                value: widget.audioProgress / 100),
             const SizedBox(height: 6),
-            Text('Downloading… $audioProgress%',
+            Text('Mengunduh… ${widget.audioProgress}%',
+                textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall),
           ],
         );
       case AudioStatus.paused:
-        return OutlinedButton.icon(
-          onPressed: onDownloadAudio,
-          icon: const Icon(Icons.download_outlined, size: 18),
-          label: Text('Resume download ($audioProgress%)'),
+        return FilledButton.icon(
+          onPressed: widget.onDownloadAudio,
+          icon: const Icon(Icons.download_outlined, size: 20),
+          label: Text('Lanjutkan unduhan (${widget.audioProgress}%)'),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
         );
       case AudioStatus.failed:
-        return OutlinedButton.icon(
-          onPressed: onDownloadAudio,
-          icon: const Icon(Icons.refresh, size: 18),
-          label: const Text('Download failed — retry'),
+        return FilledButton.icon(
+          onPressed: widget.onDownloadAudio,
+          icon: const Icon(Icons.refresh, size: 20),
+          label: const Text('Unduhan gagal — ketuk untuk coba lagi'),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
         );
       case AudioStatus.notDownloaded:
-        return OutlinedButton.icon(
-          onPressed: onDownloadAudio,
-          icon: const Icon(Icons.download_outlined, size: 18),
-          label: const Text('Audio not downloaded — download'),
+        return FilledButton.tonalIcon(
+          onPressed: widget.onDownloadAudio,
+          icon: const Icon(Icons.download_outlined, size: 20),
+          label: const Text('Unduh audio ayat ini'),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
         );
     }
   }
