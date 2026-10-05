@@ -6,6 +6,7 @@ import '../data/quran_repository.dart';
 import 'ad_service.dart';
 import 'adhan_scheduler.dart';
 import 'audio_service.dart';
+import 'daily_reminder.dart';
 import 'download_manager.dart';
 import 'notification_service.dart';
 import 'progress_repository.dart';
@@ -25,6 +26,9 @@ final settingsProvider = Provider<AppSettings>((_) => AppSettings());
 final notifProvider = Provider<NotificationService>((_) => NotificationService());
 final adhanProvider =
     Provider<AdhanScheduler>((ref) => AdhanScheduler(ref.watch(notifProvider)));
+final dailyReminderProvider = Provider<DailyReminderScheduler>((ref) =>
+    DailyReminderScheduler(ref.watch(notifProvider),
+        ref.watch(quranRepoProvider), ref.watch(progressRepoProvider)));
 final audioProvider = Provider<AyatAudioService>((_) => AyatAudioService());
 final adsProvider = Provider<AdService>((_) => AdService());
 

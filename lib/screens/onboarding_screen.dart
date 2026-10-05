@@ -154,8 +154,9 @@ class _ObState extends ConsumerState<OnboardingScreen> {
     await s.setAppLang(_lang);
     await s.setTrLang(_lang);
     await s.setReminder(true, _time.hour, _time.minute);
-    await ref.read(notifProvider).scheduleDaily(
-        hour: _time.hour, minute: _time.minute, enabled: true, lang: _lang);
+    final health = await ref.read(dbProvider).checkHealth();
+    await ref.read(dailyReminderProvider).reschedule(s,
+        fullCoverage: health.fullCoverage);
     await s.setOnboarded();
     if (mounted) context.go('/home');
   }

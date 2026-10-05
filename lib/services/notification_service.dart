@@ -4,6 +4,7 @@ import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'device_timezone.dart';
+import 'app_router_holder.dart';
 
 class NotificationService {
   final FlutterLocalNotificationsPlugin plugin = FlutterLocalNotificationsPlugin();
@@ -19,7 +20,12 @@ class NotificationService {
     const ios = DarwinInitializationSettings();
     await plugin.initialize(
       const InitializationSettings(android: android, iOS: ios),
-      onDidReceiveNotificationResponse: (_) {},
+      // Tap on daily/adzan notification opens today's ayat (Home).
+      onDidReceiveNotificationResponse: (r) {
+        try {
+          AppRouterHolder.router?.go('/home');
+        } catch (_) {}
+      },
     );
     _ready = true;
   }

@@ -192,9 +192,7 @@ class _SetState extends ConsumerState<SettingsScreen> {
                   value: s.reminderEnabled,
                   onChanged: (v) async {
                     await s.setReminder(v, s.reminderHour, s.reminderMinute);
-                    await ref.read(notifProvider).scheduleDaily(
-                        hour: s.reminderHour, minute: s.reminderMinute,
-                        enabled: v, lang: s.appLang);
+                    await _rescheduleReminder();
                     setState(() {});
                   },
                 ),
@@ -209,9 +207,7 @@ class _SetState extends ConsumerState<SettingsScreen> {
                     );
                     if (picked == null) return;
                     await s.setReminder(s.reminderEnabled, picked.hour, picked.minute);
-                    await ref.read(notifProvider).scheduleDaily(
-                        hour: picked.hour, minute: picked.minute,
-                        enabled: s.reminderEnabled, lang: s.appLang);
+                    await _rescheduleReminder();
                     setState(() {});
                   },
                 ),
@@ -314,6 +310,13 @@ class _SetState extends ConsumerState<SettingsScreen> {
       title: Text('$label (${v.toStringAsFixed(0)})'),
       subtitle: Slider(value: v, min: min, max: max, onChanged: (x) => onChanged(x)),
     );
+  }
+
+  Future<void> _rescheduleReminder() async {
+    final s = ref.read(settingsProvider);
+    final health = await ref.read(dbProvider).checkHealth();
+    await ref.read(dailyReminderProvider).reschedule(s,
+        fullCoverage: health.fullCoverage);
   }
 
   Future<void> _backup() async {

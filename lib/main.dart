@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'router.dart';
+import 'services/app_router_holder.dart';
 import 'services/providers.dart';
 
 Future<void> main() async {
@@ -22,12 +23,10 @@ Future<void> main() async {
   } catch (_) {}
   try {
     await container.read(notifProvider).init();
-    await container.read(notifProvider).scheduleDaily(
-      hour: settings.reminderHour,
-      minute: settings.reminderMinute,
-      enabled: settings.reminderEnabled,
-      lang: settings.appLang,
-    );
+    final health = await container.read(dbProvider).checkHealth();
+    // Smart daily reminder (ayat snippet + auto-skip read days).
+    await container.read(dailyReminderProvider).reschedule(settings,
+        fullCoverage: health.fullCoverage);
     // Refresh adzan alarms (7 days ahead) on every start.
     await container.read(adhanProvider).reschedule(settings);
   } catch (_) {}
@@ -69,13 +68,15 @@ class OneAyatApp extends ConsumerWidget {
         colorScheme: dark.colorScheme.copyWith(surface: Colors.black),
       );
     }
+    final router = buildRouter(onboarded: onboarded);
+    AppRouterHolder.router = router;
     return MaterialApp.router(
       title: 'ONE AYAT',
       debugShowCheckedModeBanner: false,
       theme: light,
       darkTheme: dark,
       themeMode: mode,
-      routerConfig: buildRouter(onboarded: onboarded),
+      routerConfig: router,
     );
   }
 }

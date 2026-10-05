@@ -377,6 +377,15 @@ class _HomeState extends ConsumerState<HomeScreen> {
                                 .read(progressRepoProvider)
                                 .markDailyDone(
                                     DateTime.now().toUtc(), _ref!);
+                            // Re-run smart reminder: today's slot cancels
+                            // automatically now that it is read.
+                            final health =
+                                await ref.read(dbProvider).checkHealth();
+                            await ref
+                                .read(dailyReminderProvider)
+                                .reschedule(
+                                    ref.read(settingsProvider),
+                                    fullCoverage: health.fullCoverage);
                             ref
                                 .read(refreshTickProvider.notifier)
                                 .state++;
