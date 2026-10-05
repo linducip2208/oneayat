@@ -17,6 +17,7 @@ import '../services/ad_service.dart';
 import '../services/prayer_times.dart';
 import '../services/providers.dart';
 import '../services/share_service.dart';
+import '../services/streak_freeze.dart';
 import '../services/widget_service.dart';
 import '../widgets/ayat_card.dart';
 
@@ -26,7 +27,8 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeState();
 }
 
-class _HomeState extends ConsumerState<HomeScreen> {
+class _HomeState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
   final _shareKey = GlobalKey();
   AyahDetail? _detail;
   AyahRef? _ref;
@@ -37,6 +39,7 @@ class _HomeState extends ConsumerState<HomeScreen> {
   int _days = 0;
   int _streak = 0;
   int _longest = 0;
+  int _freezeLeft = 2;
   String? _note;
   AudioStatus _audioStatus = AudioStatus.notDownloaded;
   int _audioProgress = 0;
@@ -47,18 +50,29 @@ class _HomeState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load(DateTime.now().toUtc());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _banner?.dispose();
     _playerSub?.cancel();
     super.dispose();
   }
 
-  Future<void> _load(DateTime dateUtc, {int navOffset = 0}) async {
-    setState(() => _loading = true);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Silent refresh: notification actions may have changed progress.
+    if (state == AppLifecycleState.resumed && mounted) {
+      _load(DateTime.now().toUtc(), silent: true);
+    }
+  }
+
+  Future<void> _load(DateTime dateUtc,
+      {int navOffset = 0, bool silent = false}) async {
+    if (!silent) setState(() => _loading = true);
     final quran = ref.read(quranRepoProvider);
     final progress = ref.read(progressRepoProvider);
     final settings = ref.read(settingsProvider);
@@ -107,6 +121,11 @@ class _HomeState extends ConsumerState<HomeScreen> {
       aProg = st?.progress ?? 0;
     }
     if (!mounted) return;
+    var freezeLeft = _freezeLeft;
+    try {
+      freezeLeft = (await getFreezeStatus()).remaining;
+    } catch (_) {}
+    if (!mounted) return;
     setState(() {
       _ref = refDaily;
       _detail = det;
@@ -114,6 +133,7 @@ class _HomeState extends ConsumerState<HomeScreen> {
       _days = days;
       _streak = cur;
       _longest = lon;
+      _freezeLeft = freezeLeft;
       _bookmarked = bm;
       _note = note;
       _audioStatus = aStatus;
@@ -264,6 +284,9 @@ class _HomeState extends ConsumerState<HomeScreen> {
     final settings = ref.watch(settingsProvider);
     ref.watch(refreshTickProvider);
     ref.watch(settingsTickProvider);
+    ref.listen<int>(homeReloadProvider, (_, __) {
+      if (mounted) _load(DateTime.now().toUtc(), silent: true);
+    });
     final t = L10n(settings.appLang);
     final stats = journeyStats(
         daysCompleted: _days,
@@ -431,6 +454,13 @@ class _HomeState extends ConsumerState<HomeScreen> {
                           const SizedBox(height: 6),
                           Text(
                             '${stats.progressPct.toStringAsFixed(2)}% ${t.get('journey')} · longest $_longest',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            settings.appLang == 'en'
+                                ? '❄ Streak-freeze: $_freezeLeft left this month'
+                                : '❄ Beku streak: tersisa $_freezeLeft bulan ini',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],

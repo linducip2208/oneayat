@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'router.dart';
 import 'services/app_router_holder.dart';
+import 'services/notification_service.dart';
 import 'services/providers.dart';
 
 Future<void> main() async {
@@ -33,6 +34,17 @@ Future<void> main() async {
   try {
     await container.read(adsProvider).init(premiumUser: settings.premium);
   } catch (_) {}
+  // Notification action handled in main isolate (mark-read / freeze):
+  // refresh Home + reschedule smart reminder.
+  NotificationService.onActionHandled = () async {
+    try {
+      container.read(homeReloadProvider.notifier).state++;
+      final health = await container.read(dbProvider).checkHealth();
+      await container.read(dailyReminderProvider).reschedule(
+          container.read(settingsProvider),
+          fullCoverage: health.fullCoverage);
+    } catch (_) {}
+  };
   runApp(UncontrolledProviderScope(
     container: container,
     child: OneAyatApp(onboarded: settings.onboarded),

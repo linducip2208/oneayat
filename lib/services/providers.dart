@@ -32,6 +32,9 @@ final dailyReminderProvider = Provider<DailyReminderScheduler>((ref) =>
 final audioProvider = Provider<AyatAudioService>((_) => AyatAudioService());
 final adsProvider = Provider<AdService>((_) => AdService());
 
+/// Bump to reload Home data (notification actions, freeze, resume).
+final homeReloadProvider = StateProvider<int>((_) => 0);
+
 /// Bump to refresh daily/home after actions.
 final refreshTickProvider = StateProvider<int>((_) => 0);
 final settingsTickProvider = StateProvider<int>((_) => 0);

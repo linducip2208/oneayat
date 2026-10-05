@@ -5,10 +5,26 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'device_timezone.dart';
 import 'app_router_holder.dart';
+import 'streak_freeze.dart';
+
+/// Background-isolate entry point for silent notification actions
+/// (mark-read / freeze without opening the app).
+@pragma('vm:entry-point')
+void notificationActionBackground(NotificationResponse r) {
+  if (r.actionId == 'mark_read') {
+    handleMarkReadAction(r.payload);
+  } else if (r.actionId == 'freeze') {
+    handleFreezeAction(r.payload);
+  }
+}
 
 class NotificationService {
   final FlutterLocalNotificationsPlugin plugin = FlutterLocalNotificationsPlugin();
   bool _ready = false;
+
+  /// Fired in the main isolate after a foreground action is handled
+  /// (refresh UI + reschedule). Set once from main().
+  static Future<void> Function()? onActionHandled;
 
   Future<void> init() async {
     tzdata.initializeTimeZones();
@@ -20,12 +36,26 @@ class NotificationService {
     const ios = DarwinInitializationSettings();
     await plugin.initialize(
       const InitializationSettings(android: android, iOS: ios),
-      // Tap on daily/adzan notification opens today's ayat (Home).
-      onDidReceiveNotificationResponse: (r) {
-        try {
-          AppRouterHolder.router?.go('/home');
-        } catch (_) {}
+      onDidReceiveNotificationResponse: (r) async {
+        if (r.actionId == 'mark_read') {
+          await handleMarkReadAction(r.payload);
+          try {
+            await onActionHandled?.call();
+          } catch (_) {}
+        } else if (r.actionId == 'freeze') {
+          await handleFreezeAction(r.payload);
+          try {
+            await onActionHandled?.call();
+          } catch (_) {}
+        } else {
+          // Tap on daily/adzan body opens today's ayat (Home).
+          try {
+            AppRouterHolder.router?.go('/home');
+          } catch (_) {}
+        }
       },
+      onDidReceiveBackgroundNotificationResponse:
+          notificationActionBackground,
     );
     _ready = true;
   }

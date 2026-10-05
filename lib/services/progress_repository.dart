@@ -20,8 +20,29 @@ class ProgressRepository {
       'surah': ref.surah, 'ayah': ref.ayah, 'date': key,
       'opened_at': DateTime.now().millisecondsSinceEpoch,
     });
-    // recompute streak
-    final rows = await d.query('daily_progress', columns: ['date']);
+    // Streak continuity includes frozen days (done=2); ayat count stays done=1.
+    await _recomputeStreak(d, key);
+  }
+
+  Future<bool> isDailyDone(String key) async {
+    final d = await _d;
+    final r = await d.query('daily_progress',
+        where: 'date=? AND done=1', whereArgs: [key], limit: 1);
+    return r.isNotEmpty;
+  }
+
+  /// Freeze a missed day: done=2 keeps streak continuity without ayat count.
+  Future<void> freezeDay(String key, AyahRef ref) async {
+    final d = await _d;
+    await d.insert('daily_progress', {
+      'date': key, 'surah': ref.surah, 'ayah': ref.ayah, 'done': 2,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await _recomputeStreak(d, key);
+  }
+
+  Future<void> _recomputeStreak(Database d, String key) async {
+    final rows = await d.query('daily_progress',
+        columns: ['date'], where: 'done IN (1,2)');
     final set = {for (final r in rows) r['date'] as String};
     final (current: cur, longest: lon) = computeStreaks(set, key);
     final prev = await d.query('streaks', where: 'id=1');
@@ -31,12 +52,6 @@ class ProgressRepository {
       'longest': lon > prevLongest ? lon : prevLongest,
       'last_date': key,
     }, where: 'id=1');
-  }
-
-  Future<bool> isDailyDone(String key) async {
-    final d = await _d;
-    final r = await d.query('daily_progress', where: 'date=?', whereArgs: [key], limit: 1);
-    return r.isNotEmpty;
   }
 
   Future<int> daysCompleted() async {

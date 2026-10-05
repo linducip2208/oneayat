@@ -10,6 +10,7 @@ import 'notification_service.dart';
 import 'progress_logic.dart';
 import 'progress_repository.dart';
 import 'settings_store.dart';
+import 'streak_freeze.dart';
 
 /// Pure body builder (unit-tested).
 String reminderBody({
@@ -82,6 +83,19 @@ class DailyReminderScheduler {
           DateTime.utc(dayLocal.year, dayLocal.month, dayLocal.day);
       final refDaily =
           await quran.dailyRef(dateUtc, fullCoverage: fullCoverage);
+      // Yesterday's ref (for streak-freeze action) — only meaningful today.
+      var yKey = '';
+      var ys = 0;
+      var ya = 0;
+      final isToday = key == todayKey;
+      if (isToday && missedYesterday) {
+        final yLocal = dayLocal.subtract(const Duration(days: 1));
+        yKey = dateKey(yLocal);
+        final yUtc = DateTime.utc(yLocal.year, yLocal.month, yLocal.day);
+        final yRef = await quran.dailyRef(yUtc, fullCoverage: fullCoverage);
+        ys = yRef.surah;
+        ya = yRef.ayah;
+      }
       final AyahDetail? det = await quran.ayahDetail(
         refDaily.surah,
         refDaily.ayah,
@@ -105,25 +119,47 @@ class DailyReminderScheduler {
         tz.local,
       );
       if (at.isBefore(tz.TZDateTime.now(tz.local))) continue;
+      final payload = buildDailyPayload(
+        todayKey: key,
+        surah: refDaily.surah,
+        ayah: refDaily.ayah,
+        missedYesterday: isToday && missedYesterday,
+        yesterdayKey: yKey,
+        yesterdaySurah: ys,
+        yesterdayAyah: ya,
+      );
       try {
         await notif.plugin.zonedSchedule(
           _baseId + d,
           'ONE AYAT',
           body,
           at,
-          const NotificationDetails(
+          NotificationDetails(
             android: AndroidNotificationDetails(
               'daily_ayat',
               'Daily Ayat',
               importance: Importance.high,
               priority: Priority.high,
+              actions: [
+                const AndroidNotificationAction(
+                  'mark_read',
+                  '✓ Tandai dibaca',
+                  showsUserInterface: false,
+                ),
+                if (isToday && missedYesterday)
+                  const AndroidNotificationAction(
+                    'freeze',
+                    '❄ Bekukan kemarin',
+                    showsUserInterface: false,
+                  ),
+              ],
             ),
           ),
           androidScheduleMode:
               AndroidScheduleMode.inexactAllowWhileIdle,
           uiLocalNotificationDateInterpretation:
               UILocalNotificationDateInterpretation.absoluteTime,
-          payload: 'home',
+          payload: payload,
         );
       } catch (_) {}
     }
