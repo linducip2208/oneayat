@@ -36,8 +36,8 @@
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-3940256099942544~3347511713"/>
 
-        <!-- Home-screen widget -->
-        <receiver android:name="es.antonborri.home_widget.HomeWidgetProvider"
+        <!-- Home-screen widget (own provider: tap opens app, button marks read) -->
+        <receiver android:name=".OneAyatWidgetProvider"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>

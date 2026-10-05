@@ -6,6 +6,7 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../data/models.dart';
 import '../data/quran_repository.dart';
+import 'app_day.dart';
 import 'notification_service.dart';
 import 'progress_logic.dart';
 import 'progress_repository.dart';
@@ -62,16 +63,21 @@ class DailyReminderScheduler {
     await cancelAll();
     if (!s.reminderEnabled) return;
     final now = DateTime.now();
-    final todayKey = dateKey(now);
+    // App-day aware: before Subuh still counts as yesterday.
+    final todayKey = s.currentAppDayKey(now);
+    var appToday = DateTime(now.year, now.month, now.day);
+    if (dateKey(appToday) != todayKey) {
+      appToday = appToday.subtract(const Duration(days: 1));
+    }
+    final yesterdayKey =
+        dateKey(appToday.subtract(const Duration(days: 1)));
     final days = await progress.daysCompleted();
-    final yesterdayKey = dateKey(now.subtract(const Duration(days: 1)));
     final missedYesterday =
         days > 0 && !(await progress.isDailyDone(yesterdayKey));
     final streaks = await progress.streaks();
     final streak = streaks.$1;
     for (var d = 0; d < _daysAhead; d++) {
-      final dayLocal =
-          DateTime(now.year, now.month, now.day).add(Duration(days: d));
+      final dayLocal = appToday.add(Duration(days: d));
       final key = dateKey(dayLocal);
       if (key == todayKey) {
         // Today's slot: skip when already read.
@@ -146,6 +152,11 @@ class DailyReminderScheduler {
                   '✓ Tandai dibaca',
                   showsUserInterface: false,
                 ),
+                const AndroidNotificationAction(
+                  'snooze',
+                  '⏰ 1 jam lagi',
+                  showsUserInterface: false,
+                ),
                 if (isToday && missedYesterday)
                   const AndroidNotificationAction(
                     'freeze',
@@ -163,6 +174,52 @@ class DailyReminderScheduler {
         );
       } catch (_) {}
     }
+    await _scheduleFridayRecap(s, appToday);
+  }
+
+  /// Friday morning recap: last 7 app days read/total. One notification only.
+  Future<void> _scheduleFridayRecap(AppSettings s, DateTime appToday) async {
+    const id = 1200;
+    try {
+      await notif.plugin.cancel(id);
+    } catch (_) {}
+    var read = 0;
+    for (var i = 0; i < 7; i++) {
+      final k = dateKey(appToday.subtract(Duration(days: i)));
+      try {
+        if (await progress.isDailyDone(k)) read++;
+      } catch (_) {}
+    }
+    final friday = nextFriday(DateTime.now());
+    final at = tz.TZDateTime.from(
+      DateTime(friday.year, friday.month, friday.day, s.reminderHour,
+          s.reminderMinute),
+      tz.local,
+    );
+    if (at.isBefore(tz.TZDateTime.now(tz.local))) return;
+    final body = s.appLang == 'en'
+        ? 'This week: $read/7 days • ${await progress.daysCompleted()} ayat on your journey. Bismillah, one more today.'
+        : 'Pekan ini: $read/7 hari • ${await progress.daysCompleted()} ayat perjalananmu. Bismillah, satu lagi hari ini.';
+    try {
+      await notif.plugin.zonedSchedule(
+        id,
+        s.appLang == 'en' ? 'ONE AYAT • Friday' : 'ONE AYAT • Jumat',
+        body,
+        at,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'daily_ayat',
+            'Daily Ayat',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        payload: 'home',
+      );
+    } catch (_) {}
   }
 
   Future<void> cancelAll() async {
@@ -174,5 +231,8 @@ class DailyReminderScheduler {
         await notif.plugin.cancel(_baseId + d);
       } catch (_) {}
     }
+    try {
+      await notif.plugin.cancel(1200); // friday recap
+    } catch (_) {}
   }
 }

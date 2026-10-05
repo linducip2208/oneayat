@@ -15,6 +15,8 @@ void notificationActionBackground(NotificationResponse r) {
     handleMarkReadAction(r.payload);
   } else if (r.actionId == 'freeze') {
     handleFreezeAction(r.payload);
+  } else if (r.actionId == 'snooze') {
+    handleSnoozeAction(r.payload);
   }
 }
 
@@ -46,6 +48,15 @@ class NotificationService {
           await handleFreezeAction(r.payload);
           try {
             await onActionHandled?.call();
+          } catch (_) {}
+        } else if (r.actionId == 'snooze') {
+          await handleSnoozeAction(r.payload);
+          try {
+            await onActionHandled?.call();
+          } catch (_) {}
+        } else if (r.actionId == 'open_home') {
+          try {
+            AppRouterHolder.router?.go('/home');
           } catch (_) {}
         } else {
           // Tap on daily/adzan body opens today's ayat (Home).

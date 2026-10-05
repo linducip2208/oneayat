@@ -2,6 +2,10 @@
 // theme, fonts, reminder, pace, premium flag, onboarding.
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_day.dart';
+import 'prayer_times.dart';
+import 'progress_logic.dart';
+
 class AppSettings {
   static const _appLang = 'app_lang';
   static const _trLang = 'tr_lang';
@@ -178,5 +182,22 @@ class AppSettings {
   Future<void> setShowPrayerCard(bool v) async {
     showPrayerCard = v;
     await _set((p) async => p.setBool(_prayerCard, v));
+  }
+
+  /// Today in "app days": before Subuh still counts as yesterday.
+  String currentAppDayKey([DateTime? now]) {
+    final n = now ?? DateTime.now();
+    try {
+      final prayer = computePrayerDay(
+        localDay: n,
+        lat: latitude,
+        lon: longitude,
+        method: prayerMethodById(prayerMethod),
+        tzOffsetHours: n.timeZoneOffset.inMinutes.toDouble() / 60.0,
+      );
+      return appDayKeyFor(n, prayer.fajr);
+    } catch (_) {
+      return dateKey(n);
+    }
   }
 }

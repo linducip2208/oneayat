@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/constants.dart';
 import '../core/surah_metadata.dart';
@@ -14,6 +15,7 @@ import '../l10n/strings.dart';
 import '../quran/readings.dart';
 import '../services/progress_logic.dart';
 import '../services/ad_service.dart';
+import '../services/app_day.dart';
 import '../services/prayer_times.dart';
 import '../services/providers.dart';
 import '../services/share_service.dart';
@@ -40,6 +42,8 @@ class _HomeState extends ConsumerState<HomeScreen>
   int _streak = 0;
   int _longest = 0;
   int _freezeLeft = 2;
+  HistoryEntry? _repay; // latest frozen day awaiting repay
+  int? _suggestHour;
   String? _note;
   AudioStatus _audioStatus = AudioStatus.notDownloaded;
   int _audioProgress = 0;
@@ -99,7 +103,7 @@ class _HomeState extends ConsumerState<HomeScreen>
     // Daily identity = (surah, ayah); displayed text follows selected reading.
     final det = await quran.ayahDetail(refDaily.surah, refDaily.ayah,
         readingId: settings.readingId, lang: settings.trLang);
-    final key = dateKey(DateTime.utc(dateUtc.year, dateUtc.month, dateUtc.day));
+    final key = settings.currentAppDayKey();
     final done = await progress.isDailyDone(key);
     final days = await progress.daysCompleted();
     final (cur, lon) = await progress.streaks();
@@ -122,8 +126,24 @@ class _HomeState extends ConsumerState<HomeScreen>
     }
     if (!mounted) return;
     var freezeLeft = _freezeLeft;
+    HistoryEntry? repay = _repay;
+    int? suggest = _suggestHour;
     try {
       freezeLeft = (await getFreezeStatus()).remaining;
+      final frozen = await progress.frozenDays(limit: 1);
+      repay = frozen.isEmpty ? null : frozen.first;
+      final hours = await progress.readHours();
+      final cand = suggestReminderHour(hours, settings.reminderHour);
+      if (cand != null) {
+        final prefs = await SharedPreferences.getInstance();
+        if (!(prefs.getBool('suggested_$cand') ?? false)) {
+          suggest = cand;
+        } else {
+          suggest = null;
+        }
+      } else {
+        suggest = null;
+      }
     } catch (_) {}
     if (!mounted) return;
     setState(() {
@@ -134,6 +154,8 @@ class _HomeState extends ConsumerState<HomeScreen>
       _streak = cur;
       _longest = lon;
       _freezeLeft = freezeLeft;
+      _repay = repay;
+      _suggestHour = suggest;
       _bookmarked = bm;
       _note = note;
       _audioStatus = aStatus;
@@ -396,10 +418,11 @@ class _HomeState extends ConsumerState<HomeScreen>
                         ? null
                         : () async {
                             if (_ref == null) return;
+                            final sNow = ref.read(settingsProvider);
                             await ref
                                 .read(progressRepoProvider)
                                 .markDailyDone(
-                                    DateTime.now().toUtc(), _ref!);
+                                    sNow.currentAppDayKey(), _ref!);
                             // Re-run smart reminder: today's slot cancels
                             // automatically now that it is read.
                             final health =
@@ -420,6 +443,8 @@ class _HomeState extends ConsumerState<HomeScreen>
                     label: Text(_done ? t.get('done') : t.get('mark_done')),
                   ),
                   const SizedBox(height: 16),
+                  if (_suggestHour != null) _suggestCard(context, settings),
+                  if (_repay != null) _repayCard(context, settings),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -479,6 +504,149 @@ class _HomeState extends ConsumerState<HomeScreen>
               ),
             ),
     );
+  }
+
+  Widget _suggestCard(BuildContext context, dynamic settings) {
+    final h = _suggestHour!;
+    final label =
+        '${h.toString().padLeft(2, '0')}:00';
+    final isId = (settings.appLang as String) != 'en';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isId
+                  ? 'Kamu biasanya membaca sekitar $label. Pindah reminder ke jam itu?'
+                  : 'You usually read around $label. Move the reminder there?',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                FilledButton(
+                  onPressed: () => _acceptSuggestion(h),
+                  child: Text(isId ? 'Ya, pindah' : 'Yes, move'),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: () => _dismissSuggestion(h),
+                  child: Text(isId ? 'Nanti' : 'Later'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _acceptSuggestion(int h) async {
+    final s = ref.read(settingsProvider);
+    await s.setReminder(s.reminderEnabled, h, 0);
+    final health = await ref.read(dbProvider).checkHealth();
+    await ref.read(dailyReminderProvider).reschedule(s,
+        fullCoverage: health.fullCoverage);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('suggested_$h', true);
+    if (mounted) {
+      setState(() => _suggestHour = null);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Reminder moved to ${h.toString().padLeft(2, '0')}:00')));
+    }
+  }
+
+  Future<void> _dismissSuggestion(int h) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('suggested_$h', true);
+    if (mounted) setState(() => _suggestHour = null);
+  }
+
+  Widget _repayCard(BuildContext context, dynamic settings) {
+    final r = _repay!;
+    final isId = (settings.appLang as String) != 'en';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              isId
+                  ? '❄ ${r.date} dibekukan — lunasi dengan membaca QS. ${kSurahs[r.surah - 1].latin} : ${r.ayah}?'
+                  : '❄ ${r.date} was frozen — repay by reading ${kSurahs[r.surah - 1].latin} : ${r.ayah}?',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                FilledButton(
+                  onPressed: () => _repaySheet(r),
+                  child: Text(isId ? 'Baca & lunasi' : 'Read & repay'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _repaySheet(HistoryEntry r) async {
+    final settings = ref.read(settingsProvider);
+    final det = await ref.read(quranRepoProvider).ayahDetail(
+        r.surah, r.ayah,
+        readingId: settings.readingId, lang: settings.trLang);
+    if (!mounted) return;
+    final tr = det?.translationFor(settings.trLang);
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (c) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'QS. ${kSurahs[r.surah - 1].latin} : ${r.ayah} (${r.date})',
+                style: Theme.of(c)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              if (det != null)
+                Text(det.arabic,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(fontSize: 24, height: 2.0)),
+              if (tr != null) ...[
+                const SizedBox(height: 12),
+                Text(tr, style: const TextStyle(height: 1.6)),
+              ],
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: const Text('Tandai sudah dibaca (lunasi)'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (ok == true) {
+      await ref.read(progressRepoProvider).repayFrozen(r.date);
+      final health = await ref.read(dbProvider).checkHealth();
+      await ref.read(dailyReminderProvider).reschedule(
+          ref.read(settingsProvider),
+          fullCoverage: health.fullCoverage);
+      ref.read(refreshTickProvider.notifier).state++;
+      await _load(DateTime.now().toUtc());
+    }
   }
 
   Widget _prayerCard(BuildContext context, dynamic settings) {

@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'router.dart';
 import 'services/app_router_holder.dart';
+import 'services/launch_action.dart';
 import 'services/notification_service.dart';
 import 'services/providers.dart';
+import 'services/streak_freeze.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +47,12 @@ Future<void> main() async {
           fullCoverage: health.fullCoverage);
     } catch (_) {}
   };
+  // Widget "Tandai dibaca" button: mark today's ayat without opening reader.
+  try {
+    if (await LaunchAction.consume() == 'mark') {
+      await handleWidgetMarkRead();
+    }
+  } catch (_) {}
   runApp(UncontrolledProviderScope(
     container: container,
     child: OneAyatApp(onboarded: settings.onboarded),

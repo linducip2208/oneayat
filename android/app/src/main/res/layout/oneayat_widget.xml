@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
     android:orientation="vertical"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -27,4 +28,18 @@
         android:text="ONE AYAT"
         android:textColor="#D8F3E7"
         android:textSize="12sp" />
+    <TextView
+        android:id="@+id/widget_mark"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:paddingLeft="14dp"
+        android:paddingRight="14dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:background="#FFFFFF"
+        android:text="✓ Tandai dibaca"
+        android:textColor="#0E7C5B"
+        android:textSize="12sp"
+        android:textStyle="bold" />
 </LinearLayout>

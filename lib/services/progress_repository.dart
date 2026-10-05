@@ -10,9 +10,8 @@ class ProgressRepository {
   ProgressRepository(this.qdb);
   Future<Database> get _d async => qdb.db;
 
-  Future<void> markDailyDone(DateTime dateUtc, AyahRef ref) async {
+  Future<void> markDailyDone(String key, AyahRef ref) async {
     final d = await _d;
-    final key = dateKey(DateTime.utc(dateUtc.year, dateUtc.month, dateUtc.day));
     await d.insert('daily_progress', {
       'date': key, 'surah': ref.surah, 'ayah': ref.ayah, 'done': 1,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -65,6 +64,48 @@ class ProgressRepository {
     final r = await d.query('streaks', where: 'id=1', limit: 1);
     if (r.isEmpty) return (0, 0);
     return ((r.first['current'] as int?) ?? 0, (r.first['longest'] as int?) ?? 0);
+  }
+
+  /// Frozen days (done=2): date + ayat ref, newest first.
+  Future<List<HistoryEntry>> frozenDays({int limit = 60}) async {
+    final d = await _d;
+    final rows = await d.query('daily_progress',
+        where: 'done=2', orderBy: 'date DESC', limit: limit);
+    return [
+      for (final r in rows)
+        HistoryEntry(
+          surah: r['surah'] as int,
+          ayah: r['ayah'] as int,
+          date: r['date'] as String,
+          openedAt: 0,
+        ),
+    ];
+  }
+
+  /// Repay a frozen day: mark it read (done 2 -> 1) + history entry.
+  Future<void> repayFrozen(String key) async {
+    final d = await _d;
+    final rows = await d.query('daily_progress',
+        where: 'date=? AND done=2', whereArgs: [key], limit: 1);
+    if (rows.isEmpty) return;
+    final r = rows.first;
+    await d.update('daily_progress', {'done': 1},
+        where: 'date=?', whereArgs: [key]);
+    await d.insert('reading_history', {
+      'surah': r['surah'],
+      'ayah': r['ayah'],
+      'date': key,
+      'opened_at': DateTime.now().millisecondsSinceEpoch,
+    });
+    await _recomputeStreak(d, key);
+  }
+
+  /// Recent read timestamps (ms) for habit-hour suggestion.
+  Future<List<int>> readHours({int limit = 30}) async {
+    final d = await _d;
+    final rows = await d.query('reading_history',
+        columns: ['opened_at'], orderBy: 'opened_at DESC', limit: limit);
+    return [for (final r in rows) r['opened_at'] as int];
   }
 
   Future<List<HistoryEntry>> history({int limit = 60}) async {

@@ -46,7 +46,7 @@ class AdhanScheduler {
                 ? 'Time for $name prayer • ONE AYAT'
                 : 'Saatnya salat $name • ONE AYAT',
             tz.TZDateTime.from(at, tz.local),
-            const NotificationDetails(
+            NotificationDetails(
               android: AndroidNotificationDetails(
                 'adhan',
                 'Adzan',
@@ -54,12 +54,22 @@ class AdhanScheduler {
                 priority: Priority.high,
                 // No bundled adzan audio (licensed asset required to add
                 // res/raw/adhan.mp3 + sound: RawResourceAndroidNotificationSound('adhan')).
+                actions: [
+                  AndroidNotificationAction(
+                    'open_home',
+                    s.appLang == 'en'
+                        ? '📖 Read today\u2019s ayat'
+                        : '📖 Baca ayat hari ini',
+                    showsUserInterface: true,
+                  ),
+                ],
               ),
             ),
             androidScheduleMode:
                 AndroidScheduleMode.inexactAllowWhileIdle,
             uiLocalNotificationDateInterpretation:
                 UILocalNotificationDateInterpretation.absoluteTime,
+            payload: 'home',
           );
         } catch (_) {}
       }

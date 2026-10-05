@@ -1,13 +1,20 @@
 // Streak-freeze (2x/month) + notification-action handlers.
-// Handlers use only SharedPreferences + sqflite so they run in BOTH the main
-// isolate (foreground tap) and the background isolate (silent action tap).
-// All fail-safe: any error returns "not applied", user can act inside the app.
+// Handlers use only SharedPreferences + sqflite (+ pure metadata) so they run
+// in BOTH the main isolate (foreground tap) and the background isolate
+// (silent action tap). All fail-safe.
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
+import '../core/surah_metadata.dart';
 import '../data/db.dart';
 import '../data/models.dart';
+import '../data/quran_repository.dart';
+import 'app_day.dart';
 import 'progress_logic.dart';
 import 'progress_repository.dart';
+import 'settings_store.dart';
 
 const int kFreezePerMonth = 2;
 const String _kFreezeMonth = 'freeze_month';
@@ -107,19 +114,18 @@ DailyPayload? parseDailyPayload(String? raw) {
 }
 
 /// Mark today read from a notification action. Only applies when the payload
-/// date is today (stale notifications are ignored).
+/// date is the current app day (grace hour respected); stale ones ignored.
 Future<bool> handleMarkReadAction(String? payload) async {
   try {
     final p = parseDailyPayload(payload);
     if (p == null) return false;
-    if (p.todayKey != dateKey(DateTime.now())) return false;
+    final settings = AppSettings();
+    await settings.load();
+    if (p.todayKey != settings.currentAppDayKey()) return false;
     final qdb = QuranDatabase();
     final progress = ProgressRepository(qdb);
     if (await progress.isDailyDone(p.todayKey)) return true;
-    final parts = p.todayKey.split('-');
-    final date = DateTime.utc(
-        int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-    await progress.markDailyDone(date, AyahRef(p.surah, p.ayah));
+    await progress.markDailyDone(p.todayKey, AyahRef(p.surah, p.ayah));
     await qdb.close();
     return true;
   } catch (_) {
@@ -127,8 +133,90 @@ Future<bool> handleMarkReadAction(String? payload) async {
   }
 }
 
+/// Mark today read from the home-screen widget button (no payload).
+/// Computes today's ref deterministically from the local database.
+Future<bool> handleWidgetMarkRead() async {
+  try {
+    final settings = AppSettings();
+    await settings.load();
+    final qdb = QuranDatabase();
+    try {
+      final progress = ProgressRepository(qdb);
+      final key = settings.currentAppDayKey();
+      if (await progress.isDailyDone(key)) return true;
+      final health = await qdb.checkHealth();
+      final repo = QuranRepository(qdb);
+      final parts = key.split('-');
+      final dateUtc = DateTime.utc(
+          int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+      final refDaily = await repo.dailyRef(dateUtc,
+          fullCoverage: health.fullCoverage);
+      await progress.markDailyDone(key, refDaily);
+      return true;
+    } finally {
+      await qdb.close();
+    }
+  } catch (_) {
+    return false;
+  }
+}
+
 enum FreezeResult { applied, noSlot, alreadyRead, invalid }
 
+/// Snooze today's reminder by 1 hour, max 2x per app day.
+/// Rebuilds a lightweight notification (ref only, no translation lookup) so it
+/// works in the background isolate without the translation database.
+Future<bool> handleSnoozeAction(String? payload) async {
+  try {
+    final p = parseDailyPayload(payload);
+    if (p == null) return false;
+    final settings = AppSettings();
+    await settings.load();
+    if (p.todayKey != settings.currentAppDayKey()) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final snoozeKey = 'snooze_${p.todayKey}';
+    final used = prefs.getInt(snoozeKey) ?? 0;
+    if (!snoozeAllowed(used)) return false;
+    tzdata.initializeTimeZones();
+    final at = tz.TZDateTime.from(
+      DateTime.now().add(const Duration(hours: 1)),
+      tz.UTC,
+    );
+    final plugin = FlutterLocalNotificationsPlugin();
+    final name = kSurahs[p.surah - 1].latin;
+    await plugin.zonedSchedule(
+      1300 + used,
+      'ONE AYAT',
+      settings.appLang == 'en'
+          ? '⏰ ${p.surah}:${p.ayah} still waiting — tap to read.'
+          : '⏰ QS. $name (${p.surah}:${p.ayah}) menunggumu — ketuk untuk membaca.',
+      at,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          'daily_ayat',
+          'Daily Ayat',
+          importance: Importance.high,
+          priority: Priority.high,
+          actions: const [
+            AndroidNotificationAction(
+              'mark_read',
+              '✓ Tandai dibaca',
+              showsUserInterface: false,
+            ),
+          ],
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      uiLocalNotificationDateInterpretation:
+          UILocalNotificationDateInterpretation.absoluteTime,
+      payload: payload,
+    );
+    await prefs.setInt(snoozeKey, used + 1);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 /// Freeze yesterday: streak continuity without adding ayat count.
 Future<FreezeResult> handleFreezeAction(String? payload) async {
   try {

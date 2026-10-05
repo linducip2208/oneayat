@@ -16,6 +16,7 @@ class HistoryScreen extends ConsumerStatefulWidget {
 
 class _HistState extends ConsumerState<HistoryScreen> {
   List<HistoryEntry> _items = [];
+  Set<String> _frozenDates = {};
   bool _loading = true;
   int _days = 0, _streak = 0, _longest = 0, _bm = 0, _notes = 0;
 
@@ -28,13 +29,22 @@ class _HistState extends ConsumerState<HistoryScreen> {
   Future<void> _load() async {
     final p = ref.read(progressRepoProvider);
     final items = await p.history();
+    final frozen = await p.frozenDays();
+    // Merge frozen days (no history row) as ❄ entries, newest first.
+    final have = {for (final h in items) h.date};
+    final merged = [...items];
+    for (final f in frozen) {
+      if (!have.contains(f.date)) merged.add(f);
+    }
+    merged.sort((a, b) => b.date.compareTo(a.date));
     final days = await p.daysCompleted();
     final (cur, lon) = await p.streaks();
     final bm = (await p.bookmarks()).length;
     final notes = await p.noteCount();
     if (!mounted) return;
     setState(() {
-      _items = items;
+      _items = merged;
+      _frozenDates = {for (final f in frozen) f.date};
       _days = days;
       _streak = cur;
       _longest = lon;
@@ -77,11 +87,19 @@ class _HistState extends ConsumerState<HistoryScreen> {
                   const EmptyState(icon: Icons.history, message: 'No history yet.\nYour read ayat will appear here.')
                 else
                   for (final h in _items)
-                    ListTile(
-                      leading: const Icon(Icons.check_circle_outline),
-                      title: Text('${h.date} — ${kSurahs[h.surah - 1].latin} ${h.ayah}'),
-                      subtitle: Text('QS. ${h.surah}:${h.ayah}'),
-                    ),
+                    Builder(builder: (c) {
+                      final frozen = _frozenDates.contains(h.date);
+                      return ListTile(
+                        leading: Icon(frozen
+                            ? Icons.ac_unit
+                            : Icons.check_circle_outline),
+                        title: Text(
+                            '${frozen ? '❄ ' : ''}${h.date} — ${kSurahs[h.surah - 1].latin} ${h.ayah}'),
+                        subtitle: Text(frozen
+                            ? 'Frozen (streak kept) • QS. ${h.surah}:${h.ayah}'
+                            : 'QS. ${h.surah}:${h.ayah}'),
+                      );
+                    }),
               ],
             ),
     );
