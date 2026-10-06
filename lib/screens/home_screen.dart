@@ -16,6 +16,7 @@ import '../quran/readings.dart';
 import '../services/progress_logic.dart';
 import '../services/ad_service.dart';
 import '../services/app_day.dart';
+import '../services/hijri.dart';
 import '../services/prayer_times.dart';
 import '../services/providers.dart';
 import '../services/share_service.dart';
@@ -44,6 +45,7 @@ class _HomeState extends ConsumerState<HomeScreen>
   int _freezeLeft = 2;
   HistoryEntry? _repay; // latest frozen day awaiting repay
   int? _suggestHour;
+  String? _annivNote;
   String? _note;
   AudioStatus _audioStatus = AudioStatus.notDownloaded;
   int _audioProgress = 0;
@@ -144,6 +146,23 @@ class _HomeState extends ConsumerState<HomeScreen>
       } else {
         suggest = null;
       }
+      // Anniversary: same ayat read exactly one year ago (+ its note).
+      try {
+        final ago = DateTime.now().subtract(const Duration(days: 365));
+        final agoKey =
+            '${ago.year.toString().padLeft(4, '0')}-${ago.month.toString().padLeft(2, '0')}-${ago.day.toString().padLeft(2, '0')}';
+        final hist = await progress.history(limit: 400);
+        final match = hist.where((h) =>
+            h.date == agoKey &&
+            h.surah == refDaily.surah &&
+            h.ayah == refDaily.ayah);
+        if (match.isNotEmpty) {
+          _annivNote =
+              await progress.noteFor(refDaily.surah, refDaily.ayah);
+        } else {
+          _annivNote = null;
+        }
+      } catch (_) {}
     } catch (_) {}
     if (!mounted) return;
     setState(() {
@@ -445,6 +464,9 @@ class _HomeState extends ConsumerState<HomeScreen>
                   const SizedBox(height: 16),
                   if (_suggestHour != null) _suggestCard(context, settings),
                   if (_repay != null) _repayCard(context, settings),
+                  if (_annivNote != null && _annivNote!.isNotEmpty)
+                    _annivCard(context),
+                  _ramadanCard(context, settings, stats.totalAyatRead),
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -649,8 +671,100 @@ class _HomeState extends ConsumerState<HomeScreen>
     }
   }
 
-  Widget _prayerCard(BuildContext context, dynamic settings) {
+  /// Anniversary: this same ayat was read exactly one year ago.
+  Widget _annivCard(BuildContext context) {
+    return Column(
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('🕰 Setahun lalu kamu membaca ayat ini',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Text('🖊 $_annivNote',
+                    style: Theme.of(context).textTheme.bodyMedium),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  /// Ramadan mode: khatam target + manual juz checklist. Only in Ramadan.
+  Widget _ramadanCard(
+      BuildContext context, dynamic settings, int ayatRead) {
     final now = DateTime.now();
+    final day = ramadanDay(now);
+    if (day == 0) return const SizedBox.shrink();
+    final left = ramadanRemaining(now);
+    final perDay = khatamPerDay(ayatRead, now);
+    final done = (settings.ramadanJuzDone as Set<int>).length;
+    final isId = (settings.appLang as String) != 'en';
+    return Column(
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isId
+                      ? '🌙 Ramadan hari $day/30 • tersisa $left hari'
+                      : '🌙 Ramadan day $day/30 • $left days left',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  isId
+                      ? 'Target khatam: ~$perDay ayat/hari • Juz selesai: $done/30'
+                      : 'Khatam pace: ~$perDay ayat/day • Juz done: $done/30',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                LinearProgressIndicator(
+                  value: (done / 30).clamp(0.0, 1.0),
+                  borderRadius: BorderRadius.circular(8),
+                  minHeight: 8,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (var j = 1; j <= 30; j++)
+                      ChoiceChip(
+                        label: Text('$j'),
+                        selected: (settings.ramadanJuzDone as Set<int>)
+                            .contains(j),
+                        onSelected: (_) async {
+                          await settings.toggleRamadanJuz(j);
+                          if (mounted) setState(() {});
+                        },
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  Widget _prayerCard(BuildContext context, dynamic settings) {    final now = DateTime.now();
     final day = computePrayerDay(
       localDay: now,
       lat: settings.latitude as double,
@@ -716,6 +830,14 @@ class _HomeState extends ConsumerState<HomeScreen>
               onTap: () {
                 Navigator.pop(c);
                 context.go('/quran/${_detail!.surah}');
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.psychology_outlined),
+              title: const Text('Hafalan 1 menit'),
+              onTap: () {
+                Navigator.pop(c);
+                context.go('/memorize');
               },
             ),
             ListTile(

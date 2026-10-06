@@ -8,6 +8,7 @@ import 'screens/history_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/quran_screen.dart';
+import 'screens/memorize_screen.dart';
 import 'screens/prayer_settings_screen.dart';
 import 'screens/reading_screen.dart';
 import 'screens/settings_screen.dart';
@@ -25,6 +26,7 @@ GoRouter buildRouter({required bool onboarded}) {
         branches: [
           StatefulShellBranch(routes: [
             GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
+            GoRoute(path: '/memorize', builder: (_, __) => const MemorizeScreen()),
           ]),
           StatefulShellBranch(routes: [
             GoRoute(path: '/quran', builder: (_, __) => const QuranScreen()),

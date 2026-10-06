@@ -38,6 +38,7 @@ class AppSettings {
   static const _adhanMethod = 'prayer_method';
   static const _adhanMap = 'adhan_prayers'; // csv of enabled keys
   static const _prayerCard = 'show_prayer_card';
+  static const _juzDone = 'ramadan_juz_done'; // csv of finished juz 1..30
 
   String appLang = 'id';
   String trLang = 'id';
@@ -68,6 +69,7 @@ class AppSettings {
   String prayerMethod = 'kemenag';
   Set<String> adhanPrayers = {'fajr', 'dhuhr', 'asr', 'maghrib', 'isha'};
   bool showPrayerCard = true;
+  Set<int> ramadanJuzDone = {};
 
   bool adhanFor(String key) => adhanPrayers.contains(key);
 
@@ -105,6 +107,11 @@ class AppSettings {
         ? {'fajr', 'dhuhr', 'asr', 'maghrib', 'isha'}
         : csv.split(',').toSet();
     showPrayerCard = p.getBool(_prayerCard) ?? true;
+    final juzCsv = p.getString(_juzDone) ?? '';
+    ramadanJuzDone = {
+      for (final x in juzCsv.split(','))
+        if (int.tryParse(x.trim()) case final v? when v >= 1 && v <= 30) v,
+    };
   }
 
   Future<void> _set<T>(Future<bool> Function(SharedPreferences) fn) async {
@@ -182,6 +189,14 @@ class AppSettings {
   Future<void> setShowPrayerCard(bool v) async {
     showPrayerCard = v;
     await _set((p) async => p.setBool(_prayerCard, v));
+  }
+
+  Future<void> toggleRamadanJuz(int juz) async {
+    final next = Set<int>.from(ramadanJuzDone);
+    if (!next.remove(juz)) next.add(juz);
+    ramadanJuzDone = next;
+    await _set(
+        (p) async => p.setString(_juzDone, next.map((e) => '$e').join(',')));
   }
 
   /// Today in "app days": before Subuh still counts as yesterday.

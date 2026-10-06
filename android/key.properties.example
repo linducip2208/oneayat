@@ -1,0 +1,7 @@
+# Release signing — copy to android/key.properties (NEVER commit).
+# Generate a keystore once:
+#   keytool -genkey -v -keystore oneayat-release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias oneayat
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=oneayat
+storeFile=../oneayat-release.jks

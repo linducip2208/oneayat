@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/surah_metadata.dart';
+import '../data/ayat_themes.dart';
 import '../data/models.dart';
 import '../services/progress_logic.dart';
 import '../services/providers.dart';
@@ -83,6 +84,8 @@ class _HistState extends ConsumerState<HistoryScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                _themeSection(context),
+                const SizedBox(height: 12),
                 if (_items.isEmpty)
                   const EmptyState(icon: Icons.history, message: 'No history yet.\nYour read ayat will appear here.')
                 else
@@ -102,6 +105,81 @@ class _HistState extends ConsumerState<HistoryScreen> {
                     }),
               ],
             ),
+    );
+  }
+
+  Widget _themeSection(BuildContext context) {
+    final counts =
+        themeCounts(_items.map((h) => '${h.surah}:${h.ayah}'));
+    if (counts.isEmpty) return const SizedBox.shrink();
+    final sorted = counts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Tema perjalananmu',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleSmall
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final e in sorted)
+                  ActionChip(
+                    label: Text('${e.key} • ${e.value}'),
+                    onPressed: () => _themeSheet(e.key),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _themeSheet(String theme) async {
+    final keys = kAyatThemes[theme] ?? const [];
+    final read = {
+      for (final h in _items) '${h.surah}:${h.ayah}',
+    };
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (c) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Tema: $theme',
+                  style: Theme.of(c)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              for (final k in keys)
+                Builder(builder: (c2) {
+                  final p = k.split(':');
+                  final s = int.parse(p[0]);
+                  final a = int.parse(p[1]);
+                  final done = read.contains(k);
+                  return ListTile(
+                    leading:
+                        Icon(done ? Icons.check_circle : Icons.circle_outlined),
+                    title: Text(
+                        'QS. ${kSurahs[s - 1].latin} : $a${done ? '' : ' (belum dilewati)'}'),
+                  );
+                }),
+            ],
+          ),
+        ),
+      ),
     );
   }
 

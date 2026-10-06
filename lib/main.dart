@@ -1,6 +1,11 @@
 // ONE AYAT — entry point. Offline-first, fast startup, lazy DB.
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'router.dart';
 import 'services/app_router_holder.dart';
@@ -53,14 +58,50 @@ Future<void> main() async {
       await handleWidgetMarkRead();
     }
   } catch (_) {}
+  // Weekly auto-backup (JSON in app docs, keep last 4). Silent, best-effort.
+  try {
+    await _autoBackup(container);
+  } catch (_) {}
   runApp(UncontrolledProviderScope(
     container: container,
     child: OneAyatApp(onboarded: settings.onboarded),
   ));
 }
 
-class OneAyatApp extends ConsumerWidget {
-  final bool onboarded;
+/// Weekly auto-backup: portable JSON in app docs, keeps the newest 4.
+Future<void> _autoBackup(ProviderContainer container) async {
+  final prefs = await SharedPreferences.getInstance();
+  final last = prefs.getInt('last_auto_backup') ?? 0;
+  if (DateTime.now().millisecondsSinceEpoch - last <
+      const Duration(days: 7).inMilliseconds) {
+    return;
+  }
+  final data =
+      await container.read(progressRepoProvider).exportJson();
+  final docs = await getApplicationDocumentsDirectory();
+  final dir = Directory('${docs.path}/backups');
+  await dir.create(recursive: true);
+  final now = DateTime.now();
+  final name =
+      'oneayat_${now.year.toString().padLeft(4, '0')}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.json';
+  await File('${dir.path}/$name').writeAsString(jsonEncode(data));
+  final files = dir
+      .listSync()
+      .whereType<File>()
+      .toList()
+    ..sort((a, b) => a.path.compareTo(b.path));
+  while (files.length > 4) {
+    try {
+      await files.removeAt(0).delete();
+    } catch (_) {
+      break;
+    }
+  }
+  await prefs.setInt(
+      'last_auto_backup', DateTime.now().millisecondsSinceEpoch);
+}
+
+class OneAyatApp extends ConsumerWidget {  final bool onboarded;
   const OneAyatApp({super.key, required this.onboarded});
 
   @override

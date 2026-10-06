@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/constants.dart';
 import '../quran/mushaf_config.dart';
 import '../quran/readings.dart';
 import '../services/providers.dart';
@@ -16,6 +17,7 @@ class _SrcState extends ConsumerState<SourcesScreen> {
   List<Map<String, Object?>> _readings = [];
   List<Map<String, Object?>> _langs = [];
   List<Map<String, Object?>> _reciters = [];
+  List<String> _integrity = [];
   bool _loading = true;
 
   @override
@@ -27,11 +29,29 @@ class _SrcState extends ConsumerState<SourcesScreen> {
   Future<void> _load() async {
     final db = await ref.read(dbProvider).db;
     List<Map<String, Object?>> rd = [], lg = [], rc = [];
+    final integrity = <String>[];
     try {
       rd = await db.query('quran_readings');
       lg = await db.query('translation_languages');
       rc = await db.query('reciters');
-    } catch (_) {}
+      // Per-surah count validation per reading (GROUP BY, one query each).
+      for (final reading in ['hafs-madinah', 'warsh-madinah']) {
+        final rows = await db.rawQuery(
+            'SELECT surah, COUNT(*) c FROM ayah_texts WHERE reading_id=? GROUP BY surah',
+            [reading]);
+        final got = {for (final r in rows) r['surah'] as int: r['c'] as int};
+        var ok = 0;
+        for (var s = 1; s <= 114; s++) {
+          if (got[s] == AppConstants.ayahCounts[s - 1]) ok++;
+        }
+        final total =
+            got.values.fold<int>(0, (a, b) => a + b);
+        integrity.add(
+            '$reading: $total/6236 ayat, $ok/114 surah cocok');
+      }
+    } catch (e) {
+      integrity.add('check failed: $e');
+    }
     if (!mounted) return;
     setState(() {
       _readings = rd.isEmpty
@@ -42,6 +62,7 @@ class _SrcState extends ConsumerState<SourcesScreen> {
           : rd;
       _langs = lg;
       _reciters = rc;
+      _integrity = integrity;
       _loading = false;
     });
   }
@@ -55,6 +76,9 @@ class _SrcState extends ConsumerState<SourcesScreen> {
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                _h(context, 'DATA HEALTH'),
+                _card('Integritas database',
+                    _integrity.isEmpty ? '…' : _integrity.join('\n')),
                 _h(context, 'QURAN TEXT'),
                 for (final r in _readings)
                   _card('${r['name'] ?? r['id']}',
