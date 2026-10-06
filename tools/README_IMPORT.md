@@ -56,6 +56,22 @@ compatibility explicit, licenses present, tafsir scholar required.
    reciter_readings / audio_files` (schema in `lib/data/db.dart`), or bundle
    under `assets/seed/<reading>/`.
 
+## Tanzil-format shortcut
+
+If you hold plain-text files in Tanzil 3-column format
+(`surah|ayah|text`, e.g. `quran-uthmani.txt` + translation files):
+
+```
+dart run tools/tanzil_import.dart --arabic quran-uthmani.txt \
+  --tr id:id-translation.txt --reading hafs-madinah \
+  --source "..." --license "..." --out dataset.json
+dart run tools/import_quran.dart --in dataset.json --reading hafs-madinah
+```
+
+Text passes through **verbatim** (the tool never edits Quran text) and line
+counts are validated (6236 + per-surah). Licensing remains your
+responsibility — see Tanzil terms + each translation's rights holder.
+
 ## Madinah font asset (optional, licensed only)
 
 1. Place the licensed `.ttf` + its license file under `assets/fonts/`

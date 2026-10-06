@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/constants.dart';
 import '../core/surah_metadata.dart';
 import '../data/models.dart';
+import '../data/seed_data.dart';
 import '../l10n/strings.dart';
 import '../quran/readings.dart';
 import '../services/progress_logic.dart';
@@ -93,7 +94,7 @@ class _HomeState extends ConsumerState<HomeScreen>
         final (s, a) = AppConstants.globalIndexToRef(norm);
         refDaily = AyahRef(s, a);
       } else {
-        final keys = (await Future.value(_seedKeys())).toList()..sort();
+        final keys = seedKeys.toList()..sort();
         final idx = keys.indexOf('${refDaily.surah}:${refDaily.ayah}');
         final safe = idx < 0 ? 0 : idx;
         final ni = (safe + navOffset) % keys.length;
@@ -189,16 +190,6 @@ class _HomeState extends ConsumerState<HomeScreen>
       _maybeBanner(settings.premium);
     }
   }
-
-  List<String> _seedKeys() => [
-        '1:1', '1:2', '1:3', '1:4', '1:5', '1:6', '1:7', '93:1', '93:2',
-        '93:3', '93:4', '93:5', '93:6', '93:7', '93:8', '93:9', '93:10',
-        '93:11', '94:1', '94:2', '94:3', '94:4', '94:5', '94:6', '94:7',
-        '94:8', '103:1', '103:2', '103:3', '108:1', '108:2', '108:3',
-        '112:1', '112:2', '112:3', '112:4', '113:1', '113:2', '113:3',
-        '113:4', '113:5', '114:1', '114:2', '114:3', '114:4', '114:5',
-        '114:6',
-      ];
 
   void _maybeBanner(bool premium) {
     final ads = ref.read(adsProvider);
