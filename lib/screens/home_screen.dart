@@ -8,10 +8,8 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/constants.dart';
 import '../core/surah_metadata.dart';
 import '../data/models.dart';
-import '../data/seed_data.dart';
 import '../l10n/strings.dart';
 import '../quran/readings.dart';
 import '../services/progress_logic.dart';
@@ -77,32 +75,15 @@ class _HomeState extends ConsumerState<HomeScreen>
     }
   }
 
-  Future<void> _load(DateTime dateUtc,
-      {int navOffset = 0, bool silent = false}) async {
+  Future<void> _load(DateTime dateUtc, {bool silent = false}) async {
     if (!silent) setState(() => _loading = true);
     final quran = ref.read(quranRepoProvider);
     final progress = ref.read(progressRepoProvider);
     final settings = ref.read(settingsProvider);
     final health = await ref.read(dbProvider).checkHealth();
     _fullCoverage = health.fullCoverage;
-    var refDaily = await quran.dailyRef(dateUtc, fullCoverage: _fullCoverage);
-    if (navOffset != 0) {
-      if (_fullCoverage) {
-        final g = AppConstants.refToGlobalIndex(refDaily.surah, refDaily.ayah);
-        final ng = (g + navOffset) % AppConstants.totalAyahs;
-        final norm = (ng + AppConstants.totalAyahs) % AppConstants.totalAyahs;
-        final (s, a) = AppConstants.globalIndexToRef(norm);
-        refDaily = AyahRef(s, a);
-      } else {
-        final keys = seedKeys.toList()..sort();
-        final idx = keys.indexOf('${refDaily.surah}:${refDaily.ayah}');
-        final safe = idx < 0 ? 0 : idx;
-        final ni = (safe + navOffset) % keys.length;
-        final norm = (ni + keys.length) % keys.length;
-        final p = keys[norm].split(':');
-        refDaily = AyahRef(int.parse(p[0]), int.parse(p[1]));
-      }
-    }
+    final refDaily =
+        await quran.dailyRef(dateUtc, fullCoverage: _fullCoverage);
     // Daily identity = (surah, ayah); displayed text follows selected reading.
     final det = await quran.ayahDetail(refDaily.surah, refDaily.ayah,
         readingId: settings.readingId, lang: settings.trLang);
@@ -182,7 +163,7 @@ class _HomeState extends ConsumerState<HomeScreen>
       _audioProgress = aProg;
       _loading = false;
     });
-    if (det != null && navOffset == 0) {
+    if (det != null) {
       WidgetService.updateDaily(
         arabic: det.arabic,
         ref: 'QS. ${quran.surahName(det.surah)} : ${det.ayah}',

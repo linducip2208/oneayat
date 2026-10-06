@@ -12,7 +12,6 @@ import '../data/db.dart';
 import '../data/models.dart';
 import '../data/quran_repository.dart';
 import 'app_day.dart';
-import 'progress_logic.dart';
 import 'progress_repository.dart';
 import 'settings_store.dart';
 

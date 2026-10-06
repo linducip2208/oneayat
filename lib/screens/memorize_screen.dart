@@ -1,7 +1,10 @@
 // Hafalan 1 menit: hide words, tap to peek, replay audio.
 // Uses today's ayat; never alters stored Quran text.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:just_audio/just_audio.dart';
 
 import '../core/surah_metadata.dart';
 import '../data/models.dart';
@@ -20,11 +23,18 @@ class _MemState extends ConsumerState<MemorizeScreen> {
   int _level = 3; // hide every Nth word
   final _revealed = <int>{};
   bool _playing = false;
+  StreamSubscription<PlayerState>? _playerSub;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _playerSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -171,7 +181,8 @@ class _MemState extends ConsumerState<MemorizeScreen> {
         ayah: d.ayah);
     final ok = await audio.playFile(file.path);
     if (mounted) setState(() => _playing = ok);
-    audio.stateStream.listen((st) {
+    await _playerSub?.cancel();
+    _playerSub = audio.stateStream.listen((st) {
       if (mounted && !st.playing && _playing) {
         setState(() => _playing = false);
       }
